@@ -58,6 +58,63 @@ an `online-mode` mismatch.
 To turn it back off, set `"backend": "world"` on every server and restart. Each will
 go back to its own world save, which still holds whatever it had before you switched.
 
+## Hosting notes
+
+### Docker
+
+Containers on one host are the easiest case there is: mount the same volume into each
+server. It is a local filesystem, so the exclusive-create the claim markers rely on is
+fully atomic.
+
+The mount point depends on where your image runs the server from, because
+`sharedDirectory` is relative to that. For `itzg/minecraft-server` it is `/data`:
+
+```yaml
+services:
+  survival:
+    image: itzg/minecraft-server
+    volumes:
+      - ./survival:/data
+      - expeditions:/data/shared
+  creative:
+    image: itzg/minecraft-server
+    volumes:
+      - ./creative:/data
+      - expeditions:/data/shared
+
+volumes:
+  expeditions:
+```
+
+With the default `"sharedDirectory": "shared/cobblemon_expeditions"`, both servers land
+in the same volume and nothing else needs changing.
+
+A bind mount works just as well and is easier to inspect and back up:
+
+```yaml
+    volumes:
+      - ./survival:/data
+      - /srv/expeditions-shared:/data/shared
+```
+
+If you bind-mount, make sure the container user can write to it - `chown` the host
+directory to whatever uid your image runs as (1000 for `itzg/minecraft-server`, 988
+for Pterodactyl).
+
+**The one thing this does not survive is containers on different hosts.** A Docker
+volume is local to its machine, so Swarm or Kubernetes across several nodes will
+silently give each host its own copy - every server boots fine and reports
+`shared_file`, but they are not actually sharing anything. Across hosts you need an
+NFS-backed volume, or a database backend (see below).
+
+### Pterodactyl
+
+Admin → Mounts → Create, source `/srv/expeditions-shared`, target
+`/home/container/shared`, read-only off. Attach it to the **node** and to each
+**server** - missing the node half is the usual reason a mount silently doesn't
+appear. Pterodactyl runs servers from `/home/container`, so the default
+`sharedDirectory` matches that target with no edits.
+
 ## Choosing a backend
 
 `config/cobblemon_expeditions.json`:
